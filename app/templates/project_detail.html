@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="space-y-6">
+  <div class="flex justify-between items-center">
+    <h1 class="text-3xl font-bold text-white">Project Detail: {{ project.project_name }}</h1>
+    <a href="/projects" class="text-sm font-semibold text-gold hover:text-goldlt">
+      &larr; Back to Projects
+    </a>
+  </div>
+
+  <div class="bg-surface border border-border p-6 rounded-2xl shadow-xl space-y-4">
+    <h2 class="text-lg font-bold text-white border-b border-border pb-2">Project Metadata</h2>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+      <div>
+        <span class="text-muted block text-xs uppercase font-bold">Project Name</span>
+        <span class="text-white font-medium" id="project_name">{{ project.project_name }}</span>
+      </div>
+      <div>
+        <span class="text-muted block text-xs uppercase font-bold">Status</span>
+        <span class="text-white font-medium" id="project_status">{{ project.project_status }}</span>
+      </div>
+      <div>
+        <span class="text-muted block text-xs uppercase font-bold">Start Date</span>
+        <span class="text-white font-medium font-mono" id="project_start_date">{{ project.project_start_date }}</span>
+      </div>
+      <div>
+        <span class="text-muted block text-xs uppercase font-bold">End Date</span>
+        <span class="text-white font-medium font-mono" id="project_end_date">{{ project.project_end_date }}</span>
+      </div>
+      <div>
+        <span class="text-muted block text-xs uppercase font-bold">Cost</span>
+        <span class="text-white font-medium font-mono" id="project_cost">${{ project.project_cost }}</span>
+      </div>
+      <div>
+        <span class="text-muted block text-xs uppercase font-bold">Description</span>
+        <span class="text-white" id="project_description">{{ project.project_description }}</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="space-y-4">
+    <h2 class="text-2xl font-bold text-white">Files In Project</h2>
+    <div class="bg-surface border border-border rounded-2xl shadow-xl overflow-hidden p-6 space-y-4">
+      <div className="flex justify-between items-center">
+        <span className="text-xs text-muted">Statements uploaded under this project group</span>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="min-w-full table-auto text-sm text-left">
+          <thead>
+            <tr class="border-b border-border bg-canvas/30 text-muted">
+              <th class="px-4 py-2 font-bold">File ID</th>
+              <th class="px-4 py-2 font-bold">Filename</th>
+              <th class="px-4 py-2 font-bold">Upload Date</th>
+              <th class="px-4 py-2 font-bold">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for file in files %}
+            <tr class="border-b border-border/50 hover:bg-canvas/10 transition-colors">
+              <td class="px-4 py-3 text-white font-mono">{{ file.file_id }}</td>
+              <td class="px-4 py-3 text-white font-medium">{{ file.original_filename }}</td>
+              <td class="px-4 py-3 text-muted">{{ file.uploaded_at }}</td>
+              <td class="px-4 py-3 space-x-3">
+                <a href="/chat?session_id={{ file.session_id }}" class="text-gold hover:text-goldlt font-semibold">
+                  Open Chat
+                </a>
+                <a href="/developer?session_id={{ file.session_id }}" class="text-emerald-400 hover:text-emerald-300 font-semibold">
+                  Dev Portal
+                </a>
+              </td>
+            </tr>
+            {% else %}
+            <tr>
+              <td colspan="4" class="px-4 py-8 text-center text-muted">
+                No files uploaded to this project yet. Use "New Upload" and choose this project.
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

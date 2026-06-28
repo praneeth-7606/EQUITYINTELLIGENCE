@@ -1,0 +1,11 @@
+{
+  "layout_type": "standard_row",
+  "mappings": {
+    "symbol": "ScripName",
+    "quantity": "Buy Qty",
+    "buy_value": "Buy Value",
+    "sell_value": "Sell Value",
+    "brokerage": "Brokerage",
+    "stt": "STT"
+  }
+}
