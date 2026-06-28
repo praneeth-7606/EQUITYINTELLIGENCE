@@ -1,140 +1,175 @@
-# Stock Intelligence Platform
+# Equity Intelligence
 
-A production-grade AI-powered stock portfolio analytics and dividend intelligence platform. It parses transactions from uploaded Excel sheets, builds chronological holding ledgers, performs deterministic financial calculations, fetches corporate action data, and provides deep insights using xAI's Grok with a seamless Google Gemini 2.5 Flash failover fallback.
+Equity Intelligence is a full-stack, AI-assisted platform for Indian equity portfolio analytics and public-stock research. It validates Excel transaction statements, builds chronological holdings, calculates P&L and charges deterministically, tracks dividends, and provides cited market research through a multi-agent workflow.
 
----
+The backend uses FastAPI, LangGraph, MongoDB, and a resilient LLM provider chain. The frontend is a React and TypeScript dashboard with authenticated projects, file-specific chat sessions, portfolio visualizations, and an observability workspace for developers.
 
-## Technical Features
+## Demo
 
-- **Multi-Agent LangGraph Workflow**: Led by a Supervisor node that orchestrates tasks between specialized agents:
-  - **Portfolio Agent**: Analyzes holdings summaries, investment durations, and concentration profiles.
-  - **P&L Agent**: Runs deterministic Python code to calculate realized/unrealized profit/loss, winning/losing trades, and aggregates results.
-  - **Dividend Agent**: Resolves stock symbols, fetches historical dividends via Yahoo Finance, checks eligibility, and calculates upcoming and missed payouts.
-- **Fail-safe LLM Factory**: Primary routing and generation are handled by **Grok (xAI)**, with automated, invocation-level failover to **Gemini 2.5 Flash** if Grok rate limits, times out, or errors.
-- **Tax and Fee Calculator**: Auto-calculates STT, GST, SEBI charges, Stamp Duty, Exchange charges, and DP charges using standard Indian delivery transaction rules.
-- **Local Cache**: Caches stock sectors, prices, and dividend histories locally to optimize speed and avoid API rate limits.
-- **Modern Standards**: Developed with Python 3.12, fully type-hinted, formatted with Black/Ruff, and packaged with `uv`.
+[Watch the Equity Intelligence demo](https://drive.google.com/file/d/1ewYySuQ2O5yPHXtSdWMXKZCzMm9uJR0s/view?usp=drive_link)
 
----
+## Features
 
-## Project Structure
+- **Portfolio Agent** summarizes holdings, investment duration, diversification, and concentration.
+- **P&L Agent** calculates realized and unrealized P&L, open positions, trade outcomes, and Indian delivery charges with deterministic Python logic.
+- **Dividend Agent** resolves NSE symbols, retrieves corporate actions, checks holding-date eligibility, and estimates received, missed, and upcoming payouts.
+- **Stock Analysis Agent** handles public-company questions without requiring a portfolio upload. It supports historical price and monthly performance, volatility, drawdown, fundamentals, corporate actions, full dividend history, and year-specific narrative analysis.
+- **Supervisor routing** selects the appropriate specialist from natural-language requests.
+- **Provider failover** tries Mistral first, then Grok or Groq, and finally Gemini. Providers without configured keys are skipped, and structured-output calls have a JSON fallback path.
+- **Market-data fallbacks** use Yahoo Finance for prices, company data, and corporate actions; NSE-aware symbol resolution and keyless web research supplement missing or factual public-company data.
+- **Privacy masking** redacts emails, PANs, account and demat identifiers, client metadata, filenames, and asset names where appropriate before sensitive samples or portfolio prompts reach an LLM. Public web searches contain only public-company questions, never portfolio data.
+- **Multi-file projects** retain every uploaded workbook as a separate file and chat session under a project, so users can revisit and analyze multiple statements without overwriting earlier uploads.
+- **Authentication and persistence** provide JWT access/refresh tokens, user profiles, projects, sessions, chat history, reports, and transaction snapshots backed by MongoDB.
+- **Developer dashboard** exposes live and historical traces, workflow steps, tool and database calls, LLM usage, errors, latency, token/cost analytics, and daily trends at `/developer`.
+- **Modern UI** includes portfolio, P&L, dividend, stock-analysis, raw-data, and ReAct activity views.
 
-```
-stock-intelligence/
-├── pyproject.toml         # Dependency declarations
-├── .env                  # API keys and config (create from template)
-├── main.py               # Launcher entrypoint
-├── create_sample_portfolio.py  # Script to generate sample spreadsheet
+## LLM and data fallback order
+
+The application attempts configured LLM providers in this order:
+
+1. Mistral (`MISTRAL_API_KEY`)
+2. Grok (`XAI_API_KEY`) or Groq when the supplied key begins with `gsk_`
+3. Gemini (`GEMINI_API_KEY`)
+
+At least one provider key is required for AI-generated narratives. Core spreadsheet normalization, holding timelines, P&L, fees, and other deterministic calculations do not depend on an LLM.
+
+Stock research primarily uses Yahoo Finance. The Stock Analysis Agent also performs NSE-aware ticker resolution and can use a DuckDuckGo HTML search fallback for public facts or when normal market metadata is incomplete. Network-sourced financial information can be delayed or unavailable and should not be treated as investment advice.
+
+## Privacy model
+
+The privacy layer masks common personal and brokerage identifiers in logs, validation errors, spreadsheet samples, and LLM-bound text. Portfolio asset symbols can be replaced with aliases during narrative generation and restored in the response. Uploaded workbooks are stored in the local `data/` directory using user/file-specific names, while metadata and chat history are stored in MongoDB.
+
+This is application-level masking, not a substitute for infrastructure controls. For production use, secure MongoDB and the host filesystem, restrict CORS, use TLS, rotate provider keys, set a strong `JWT_SECRET`, and define an appropriate data-retention policy.
+
+## Project structure
+
+```text
+.
 ├── app/
-│   ├── config.py         # Configuration loader via pydantic-settings
-│   ├── models.py         # FastAPI schemas
-│   ├── state.py          # LangGraph state TypedDict
-│   ├── llm.py            # Reusable LLM Factory with with_fallbacks()
-│   ├── router.py         # API router /upload, /agent/*, /chat
-│   ├── main.py           # FastAPI app instance
-│   ├── agents/
-│   │   ├── supervisor.py       # Supervisor routing agent
-│   │   ├── portfolio_agent.py  # Portfolio report agent
-│   │   ├── pnl_agent.py        # Profit/loss report agent
-│   │   ├── dividend_agent.py   # Dividend tracker agent
-│   │   └── graph.py            # LangGraph workflow compilation
-│   └── tools/
-│       ├── excel_reader.py     # Excel scanner and normalizer
-│       ├── corporate_actions.py # yfinance splits and dividends scraper
-│       ├── holding_timeline.py # Chronological ledger builder
-│       ├── pnl_calculator.py   # Deterministic P&L math engine
-│       ├── dividend_fetcher.py # Dividend tool wrapper
-│       ├── eligibility_checker.py # Eligibility and payout validator
-│       └── registry.py         # LangChain tool interfaces
-└── tests/                # Unit & integration tests
+│   ├── agents/             # Supervisor and specialist LangGraph agents
+│   ├── auth/               # JWT authentication and profile endpoints
+│   ├── observability/      # Tracing middleware, persistence, and APIs
+│   ├── tools/              # Excel, timeline, P&L, dividend, and web tools
+│   ├── llm.py              # Mistral → Grok/Groq → Gemini provider chain
+│   ├── privacy.py          # Masking and asset-alias helpers
+│   ├── router.py           # Portfolio, project, session, and chat APIs
+│   └── main.py             # FastAPI application
+├── frontend/               # React, TypeScript, Vite, and MUI application
+├── tests/                  # Backend unit tests
+├── .env.example            # Configuration template
+├── main.py                 # Backend launcher
+└── pyproject.toml          # Python dependencies and tooling
 ```
 
----
+## Prerequisites
 
-## Getting Started
+- Python 3.12 or newer
+- [uv](https://docs.astral.sh/uv/)
+- Node.js and npm
+- MongoDB
+- At least one supported LLM API key
 
-### 1. Installation
-Install the project dependencies and set up the virtual environment:
-```bash
-# Sync environment
-uv sync
-```
+## Setup
 
-### 2. Configuration
-Copy the `.env` template and set your API keys:
-```bash
-# Edit .env and input your keys
-XAI_API_KEY=your_xai_key
-GEMINI_API_KEY=your_gemini_key
-```
+1. Install backend dependencies:
 
-### 3. Generate Sample Portfolio
-Generate a sample Excel sheet with mock transactions to test the system:
-```bash
-uv run create_sample_portfolio.py
-```
-This creates `sample_portfolio.xlsx` in the project root.
+   ```bash
+   uv sync
+   ```
 
-### 4. Run the Server
-Launch the FastAPI server:
+2. Copy `.env.example` to `.env` and configure MongoDB, a strong JWT secret, and one or more LLM keys:
+
+   ```dotenv
+   MISTRAL_API_KEY=your-mistral-api-key
+   MONGODB_URI=mongodb://localhost:27017
+   JWT_SECRET=replace-with-a-long-random-secret
+   ```
+
+3. Install frontend dependencies:
+
+   ```bash
+   cd frontend
+   npm install
+   ```
+
+## Run locally
+
+Start MongoDB, then launch the API from the repository root:
+
 ```bash
 uv run main.py
 ```
-The server will start at `http://localhost:8000`. You can access the interactive API docs at `http://localhost:8000/docs`.
 
----
+The API is available at `http://localhost:8000`; OpenAPI documentation is at `http://localhost:8000/docs`.
 
-## API Documentation
+In another terminal, start the frontend:
 
-### 1. Upload Portfolio
-- **Endpoint**: `POST /api/v1/upload`
-- **Payload**: Form-data containing `file: sample_portfolio.xlsx`
-- **Response**: Standardized verification response showing recognized columns, symbols, and transactions.
-
-### 2. Direct Agent Endpoints
-Execute report pipelines directly on the last uploaded file:
-- **POST `/api/v1/agent/portfolio`**: Triggers portfolio summary.
-- **POST `/api/v1/agent/pnl`**: Triggers profit/loss, charges breakdown, and performance charts metadata.
-- **POST `/api/v1/agent/dividend`**: Triggers eligibility checker, company-wise dividends, upcoming dividend projections, and missed payouts.
-
-### 3. Chat Endpoint
-- **Endpoint**: `POST /api/v1/chat`
-- **Payload**:
-  ```json
-  {
-    "message": "How much total profit did I make?"
-  }
-  ```
-- **Routing**: The Supervisor agent automatically detects the query intent and forwards it to the P&L agent to generate the calculation and response.
-
-### 4. Standard Response Format
-All `/agent/*` and `/chat` endpoints return a consistent structured JSON:
-```json
-{
-  "success": true,
-  "execution_time": 0.3541,
-  "agent_used": "pnl_agent",
-  "summary": "Your realized profit is 1,200.00 with net charges of 85.34...",
-  "insights": [
-    "Winning trades percentage is 75%.",
-    "RELIANCE represents the largest source of profit."
-  ],
-  "structured_data": {
-    "realized_profit": 1200.00,
-    "net_profit": 1114.66,
-    "winning_trades": 3,
-    "losing_trades": 1,
-    "best_trade": { ... },
-    "charts_metadata": { ... }
-  }
-}
+```bash
+cd frontend
+npm run dev
 ```
 
----
+Vite prints the frontend URL, normally `http://localhost:5173`.
 
-## Running Tests
+To create a sample transaction workbook:
 
-Verify the calculations and excel normalization:
+```bash
+uv run create_sample_portfolio.py
+```
+
+## Typical workflow
+
+1. Register or sign in.
+2. Create or select a project.
+3. Upload one or more `.xlsx` or `.xls` transaction statements. Each upload is validated, normalized, stored independently, and assigned its own chat session.
+4. Review or adjust column mappings when a broker uses non-standard headings.
+5. Run a portfolio, P&L, or dividend report, or ask a natural-language question.
+6. Ask a public-stock question such as “Analyze TCS for 2025” without uploading a workbook.
+7. Inspect execution details and operational analytics in the Developer Dashboard.
+
+## Main API endpoints
+
+All application endpoints use the `/api/v1` prefix. Protected routes require a bearer access token.
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| `POST` | `/register`, `/login`, `/refresh`, `/logout` | Authentication |
+| `GET`, `PUT` | `/me` | Read or update the user profile |
+| `POST` | `/upload` | Upload and validate one Excel workbook; optionally associate it with a project |
+| `POST`, `GET` | `/projects` | Create or list projects |
+| `GET` | `/projects/{project_id}` | Get a project and all of its uploaded files/sessions |
+| `GET` | `/user/sessions` | List a user's file-specific chat sessions |
+| `GET` | `/chat/history/{session_id}` | Load persisted conversation history |
+| `POST` | `/agent/portfolio` | Run portfolio analysis |
+| `POST` | `/agent/pnl` | Run deterministic P&L and charge analysis |
+| `POST` | `/agent/dividend` | Run portfolio dividend analysis |
+| `POST` | `/agent/stock_analysis` | Analyze a named public stock |
+| `POST` | `/chat` | Route a request through the supervisor |
+| `GET` | `/obs/traces`, `/obs/live` | Query historical or active traces |
+| `GET` | `/obs/analytics/*` | Query agent, tool, LLM, error, cost, and performance analytics |
+
+See the generated OpenAPI documentation for complete request and response schemas.
+
+## Tests and checks
+
+Run backend tests:
+
 ```bash
 uv run pytest
 ```
+
+Run frontend checks:
+
+```bash
+cd frontend
+npm run lint
+npm run build
+```
+
+## License
+
+This project is licensed under the MIT License. See [LICENSE](LICENSE).
+
+## Disclaimer
+
+Equity Intelligence is an analytics and educational tool. Its output may be incomplete, delayed, or incorrect and is not financial, tax, or investment advice.
