@@ -1,6 +1,9 @@
 import os
 import json
 import logging
+import re
+from difflib import SequenceMatcher
+from io import StringIO
 import yfinance as yf
 import pandas as pd
 from datetime import datetime, date
@@ -10,6 +13,120 @@ from app.config import settings
 logger = logging.getLogger("stock_intelligence.corporate_actions")
 
 import requests
+
+_NSE_SECURITY_MASTER: Optional[List[Dict[str, str]]] = None
+_NSE_MASTER_URL = "https://nsearchives.nseindia.com/content/equities/EQUITY_L.csv"
+
+
+def _normalize_company_name(value: str) -> str:
+    normalized = re.sub(r"[^A-Z0-9 ]+", " ", value.upper())
+    replacements = {
+        "MAGZON": "MAZAGON",
+        "SHIP BUILDER": "DOCK SHIPBUILDERS",
+        "SHIPBUILDERS": "SHIPBUILDERS",
+        "COMPELTE": "",
+        "COMPLTE": "",
+    }
+    for source, target in replacements.items():
+        normalized = normalized.replace(source, target)
+    stopwords = {
+        "LIMITED", "LTD", "THE", "STOCK", "SHARE", "SHARES", "ANALYSIS",
+        "COMPLETE", "COMPANY", "INDIA", "INDIAN",
+    }
+    return " ".join(word for word in normalized.split() if word not in stopwords)
+
+
+def _load_nse_security_master() -> List[Dict[str, str]]:
+    global _NSE_SECURITY_MASTER
+    if _NSE_SECURITY_MASTER is not None:
+        return _NSE_SECURITY_MASTER
+
+    cache_path = os.path.join(settings.cache_dir, "nse_equity_master.csv")
+    csv_text = ""
+    if os.path.exists(cache_path) and (datetime.now().timestamp() - os.path.getmtime(cache_path)) < 86400:
+        try:
+            with open(cache_path, "r", encoding="utf-8") as handle:
+                csv_text = handle.read()
+        except Exception as exc:
+            logger.warning(f"Failed reading NSE security-master cache: {exc}")
+
+    if not csv_text:
+        try:
+            response = requests.get(
+                _NSE_MASTER_URL,
+                headers={"User-Agent": "Mozilla/5.0"},
+                timeout=8,
+            )
+            response.raise_for_status()
+            csv_text = response.text
+        except Exception as verified_exc:
+            logger.warning(f"Verified NSE security-master request failed: {verified_exc}")
+            try:
+                response = requests.get(
+                    _NSE_MASTER_URL,
+                    headers={"User-Agent": "Mozilla/5.0"},
+                    timeout=8,
+                    verify=False,
+                )
+                response.raise_for_status()
+                csv_text = response.text
+            except Exception as fallback_exc:
+                logger.warning(f"NSE security-master fallback failed: {fallback_exc}")
+
+        if csv_text:
+            try:
+                with open(cache_path, "w", encoding="utf-8") as handle:
+                    handle.write(csv_text)
+            except Exception as exc:
+                logger.warning(f"Failed caching NSE security master: {exc}")
+
+    if not csv_text:
+        _NSE_SECURITY_MASTER = []
+        return _NSE_SECURITY_MASTER
+
+    frame = pd.read_csv(StringIO(csv_text))
+    frame.columns = [str(column).strip() for column in frame.columns]
+    symbol_col = next((column for column in frame.columns if column.upper() == "SYMBOL"), None)
+    name_col = next((column for column in frame.columns if "NAME OF COMPANY" in column.upper()), None)
+    if not symbol_col or not name_col:
+        _NSE_SECURITY_MASTER = []
+        return _NSE_SECURITY_MASTER
+
+    _NSE_SECURITY_MASTER = [
+        {
+            "symbol": str(row[symbol_col]).strip(),
+            "name": str(row[name_col]).strip(),
+        }
+        for _, row in frame.iterrows()
+        if str(row[symbol_col]).strip() and str(row[name_col]).strip()
+    ]
+    return _NSE_SECURITY_MASTER
+
+
+def lookup_ticker_from_nse_master(query: str) -> Optional[str]:
+    normalized_query = _normalize_company_name(query)
+    if not normalized_query:
+        return None
+
+    best_symbol = None
+    best_score = 0.0
+    for security in _load_nse_security_master():
+        symbol = security["symbol"].upper()
+        normalized_name = _normalize_company_name(security["name"])
+        if normalized_query == symbol or normalized_query == normalized_name:
+            return f"{symbol}.NS"
+        score = max(
+            SequenceMatcher(None, normalized_query, normalized_name).ratio(),
+            SequenceMatcher(None, normalized_query, symbol).ratio(),
+        )
+        if score > best_score:
+            best_score = score
+            best_symbol = symbol
+
+    if best_symbol and best_score >= 0.64:
+        logger.info(f"NSE security master resolved '{query}' to '{best_symbol}.NS' (score={best_score:.2f})")
+        return f"{best_symbol}.NS"
+    return None
 
 def lookup_ticker_online(query: str) -> Optional[str]:
     """
@@ -51,15 +168,6 @@ def resolve_symbol_for_yfinance(symbol: str, exchange: str = None) -> str:
     has_spaces = " " in symbol
     is_long_name = len(symbol) > 10
 
-    if is_isin or has_spaces or is_long_name:
-        # Lookup online
-        logger.info(f"Looking up ticker symbol for query '{symbol}' online...")
-        resolved = lookup_ticker_online(symbol)
-        if resolved:
-            logger.info(f"Successfully resolved '{symbol}' to '{resolved}'")
-            return resolved
-
-    # Fallback to appending exchange suffix
     symbol_upper = symbol.upper()
     if exchange:
         exch = exchange.upper().strip()
@@ -72,6 +180,17 @@ def resolve_symbol_for_yfinance(symbol: str, exchange: str = None) -> str:
     us_tickers = {"AAPL", "MSFT", "GOOG", "GOOGL", "AMZN", "META", "TSLA", "NVDA", "NFLX", "AMD"}
     if symbol_upper in us_tickers:
         return symbol_upper
+
+    # Always search public symbol registries before assuming an NSE ticker.
+    logger.info(f"Looking up ticker symbol for query '{symbol}' online...")
+    resolved = lookup_ticker_online(symbol)
+    if resolved:
+        logger.info(f"Yahoo symbol search resolved '{symbol}' to '{resolved}'")
+        return resolved
+
+    nse_resolved = lookup_ticker_from_nse_master(symbol)
+    if nse_resolved:
+        return nse_resolved
         
     return f"{symbol_upper}.NS"
 

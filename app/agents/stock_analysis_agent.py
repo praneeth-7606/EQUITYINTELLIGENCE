@@ -67,6 +67,8 @@ def _extract_query_fast(query: str) -> Optional[Dict[str, Any]]:
     lowered = normalized.lower()
     if years and any(phrase in lowered for phrase in ["to now", "up to now", "till now", "until now", "to date"]):
         years = list(range(min(years), CURRENT_YEAR + 1))
+    elif len(years) == 2 and re.search(r"\b(?:to|through|until|-)\b", lowered):
+        years = list(range(min(years), max(years) + 1))
     full_dividend_history = any(
         phrase in normalized.lower()
         for phrase in [
@@ -82,7 +84,7 @@ def _extract_query_fast(query: str) -> Optional[Dict[str, Any]]:
 
     stripped = re.sub(r"\b(20\d{2})\b", "", normalized)
     stripped = re.sub(
-        r"\b(hey|hi|hello|can|could|would|you|please|kindly|analyze|analyse|analysis|research|report|overview|details?|information|info|show|get|give|tell|find|fetch|provide|need|want|me|my|for|of|on|about|the|a|an|whole|all|data|everything|what|who|is|business|model|founder|headquarters|stock|stocks|share|shares|equity|company|price|prices|performance|returns?|trend|chart|target|forecast|outlook|compare|comparison|versus|vs|with|complete|full|history|dividend|dividends|fundamental|fundamentals|technical|technicals|when|was|which|year|market|debut|ipo|got|listed|in|from|listing|date|up|to|now|latest|current)\b",
+        r"\b(hey|hi|hello|can|could|would|you|please|kindly|analyze|analyse|analysis|research|report|overview|details?|information|info|show|get|give|tell|find|fetch|provide|need|want|me|my|for|of|on|about|the|a|an|whole|all|data|everything|what|who|is|business|model|founder|headquarters|stock|stocks|share|shares|equity|company|price|prices|performance|returns?|trend|chart|target|forecast|outlook|compare|comparison|versus|vs|with|complete|compelte|complte|full|history|dividend|dividends|fundamental|fundamentals|technical|technicals|when|was|which|year|market|debut|ipo|got|listed|in|from|listing|date|up|to|now|latest|current)\b",
         " ",
         stripped,
         flags=re.IGNORECASE,
@@ -154,13 +156,14 @@ def _get_history_cached(ticker: yf.Ticker, resolved_symbol: str, start_date: str
         return _TICKER_HISTORY_CACHE[cache_key].copy()
 
     try:
-        hist = ticker.history(start=start_date, end=end_date)
-    except Exception as err:
-        logger.warning(f"yfinance history failed for {resolved_symbol}: {err}")
-        hist = pd.DataFrame()
-
-    if hist.empty:
         hist = _get_history_http(resolved_symbol, start_date, end_date)
+    except Exception as err:
+        logger.warning(f"Direct chart request failed for {resolved_symbol}: {err}; trying yfinance.")
+        try:
+            hist = ticker.history(start=start_date, end=end_date)
+        except Exception as fallback_err:
+            logger.warning(f"yfinance history failed for {resolved_symbol}: {fallback_err}")
+            hist = pd.DataFrame()
     _TICKER_HISTORY_CACHE[cache_key] = hist.copy()
     return hist
 
@@ -615,7 +618,11 @@ async def stock_analysis_agent_node(state: State) -> State:
     max_year = max(years)
     try:
         all_hist = _get_history_cached(ticker, resolved_symbol, f"{min_year}-01-01", f"{max_year + 1}-01-01")
-        corporate_actions = _get_corporate_actions_cached(resolved_symbol)
+        corporate_actions = (
+            _get_corporate_actions_cached(resolved_symbol)
+            if info
+            else {"dividends": [], "splits": []}
+        )
     except Exception as err:
         logger.error(f"Market data fetch failed for {resolved_symbol}: {err}")
         state["result"] = {

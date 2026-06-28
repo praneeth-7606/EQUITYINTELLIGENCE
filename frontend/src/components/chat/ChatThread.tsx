@@ -6,6 +6,55 @@ import ReActLogPanel from './ReActLogPanel';
 import { useAgentCall } from '../../hooks/useSSEStream';
 import MarkdownRenderer from './MarkdownRenderer';
 
+function insightTone(insight: string) {
+  const normalized = insight.toLowerCase();
+  const riskTerms = [
+    'risk',
+    'loss',
+    'decline',
+    'debt',
+    'negative',
+    'overvalu',
+    'volatile',
+    'drawdown',
+    'weak',
+    'concern',
+  ];
+  const positiveTerms = [
+    'positive',
+    'growth',
+    'gain',
+    'strong',
+    'improved',
+    'increase',
+    'profit',
+    'healthy',
+  ];
+
+  if (riskTerms.some((term) => normalized.includes(term))) {
+    return {
+      border: 'border-rose-400/25',
+      background: 'bg-rose-400/[0.07]',
+      marker: 'border-rose-300/25 bg-rose-300/10 text-rose-200',
+      text: 'text-rose-50',
+    };
+  }
+  if (positiveTerms.some((term) => normalized.includes(term))) {
+    return {
+      border: 'border-emerald-400/25',
+      background: 'bg-emerald-400/[0.07]',
+      marker: 'border-emerald-300/25 bg-emerald-300/10 text-emerald-200',
+      text: 'text-emerald-50',
+    };
+  }
+  return {
+    border: 'border-sky-400/20',
+    background: 'bg-sky-400/[0.06]',
+    marker: 'border-sky-300/20 bg-sky-300/10 text-sky-200',
+    text: 'text-sky-50',
+  };
+}
+
 function UserMessage({ msg }: { msg: Message }) {
   return (
     <div className="flex justify-end">
@@ -62,11 +111,38 @@ function AgentMessage({ msg, isStreaming }: { msg: Message; isStreaming: boolean
               )}
 
               {msg.insights && msg.insights.length > 0 && (
-                <div className="space-y-1 border-t border-border/50 pt-2">
-                  <p className="label text-[9px]">Insights</p>
-                  {msg.insights.map((ins, i) => (
-                    <p key={i} className="text-xs leading-relaxed text-muted">- {ins}</p>
-                  ))}
+                <div className="border-t border-border/50 pt-3">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#f2d18a]">
+                        Key insights
+                      </p>
+                      <p className="mt-1 text-[11px] text-[#8fa1af]">
+                        Important findings from this analysis
+                      </p>
+                    </div>
+                    <span className="rounded-full border border-[#d4a84c]/20 bg-[#d4a84c]/10 px-2.5 py-1 text-[10px] font-semibold text-[#f2d18a]">
+                      {msg.insights.length} findings
+                    </span>
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {msg.insights.map((ins, i) => {
+                      const tone = insightTone(ins);
+                      return (
+                        <div
+                          key={i}
+                          className={`flex min-h-[72px] items-start gap-3 rounded-lg border p-3 ${tone.border} ${tone.background}`}
+                        >
+                          <span
+                            className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md border text-[10px] font-bold ${tone.marker}`}
+                          >
+                            {String(i + 1).padStart(2, '0')}
+                          </span>
+                          <p className={`text-xs font-medium leading-5 ${tone.text}`}>{ins}</p>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
 
